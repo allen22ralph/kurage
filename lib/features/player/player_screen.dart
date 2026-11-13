@@ -86,6 +86,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final ProviderContainer _container;
   final _videoKey = GlobalKey<VideoState>();
   StreamSubscription<BaseItem>? _nextSub;
+  ProviderSubscription<Uri?>? _addressSub;
 
   /// The window itself is fullscreen (desktop): it must be restored when
   /// the player closes, or the rest of the app is stuck fullscreen with no
@@ -254,7 +255,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       onReportedAgain: (id) => unawaited(_container.read(downloadsProvider.notifier).removePending(id)),
       onNotice: (message) => showToast(message, duration: const Duration(seconds: 5)),
       playlistId: widget.playlistId,
+      // The stream stopped coming: if the server's address stopped
+      // answering, another of its addresses is switched to (below).
+      onLongWait: () => unawaited(_container.read(sessionControllerProvider.notifier).useAnsweringAddress(onlyIfDown: true)),
     );
+    // Switched to another of the server's addresses: the stream follows.
+    _addressSub = _container.listen(sessionControllerProvider.select((s) => s.value?.baseUrl), (before, now) {
+      if (before == null || now == null || before == now) return;
+      unawaited(_controller.moveTo(
+        playback: _container.read(playbackApiProvider),
+        library: _container.read(libraryApiProvider),
+      ));
+    });
     _nextSub = _controller.nextRequests.listen((next) {
       final playlist = widget.playlistId;
       if (mounted) context.pushReplacement('/play/${next.id}${playlist == null ? '' : '?playlist=$playlist'}');
@@ -323,6 +335,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       container.read(malSyncServiceProvider).playbackEnded(itemId);
     });
     _nextSub?.cancel();
+    _addressSub?.close();
     _mediaButtonSub?.cancel();
     _sizeSub?.cancel();
     // Leaving from the mini player: the window goes back as it was.

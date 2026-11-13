@@ -35,6 +35,7 @@ class PlaybackController extends ChangeNotifier {
     this.onReportedAgain,
     this.onNotice,
     this.playlistId,
+    this.onLongWait,
     this.shortStall = const Duration(milliseconds: 1500),
     this.longStall = const Duration(seconds: 6),
     this.stallWindow = const Duration(seconds: 90),
@@ -43,7 +44,15 @@ class PlaybackController extends ChangeNotifier {
   }) : quality = _picked ?? settings.defaultQuality;
 
   final MediaEngine engine;
-  final PlaybackApi playback;
+
+  /// The server, at the address in use: replaced by [moveTo] when the app
+  /// switches to another of its addresses.
+  PlaybackApi playback;
+
+  /// Called when the stream has kept the player waiting for [longStall]
+  /// (whatever the quality): the server's address may have stopped
+  /// answering (left home, say).
+  final void Function()? onLongWait;
 
   /// The playlist this was played from: next and previous follow it.
   final String? playlistId;
@@ -123,7 +132,7 @@ class PlaybackController extends ChangeNotifier {
   Future<void> Function(Duration target)? seekVia;
 
   Future<void> _seek(Duration target) => (seekVia ?? engine.seek)(target);
-  final LibraryApi library;
+  LibraryApi library;
   final PlaybackSettings settings;
   final String authorizationHeader;
   final Duration progressInterval;
@@ -479,6 +488,18 @@ class PlaybackController extends ChangeNotifier {
     await _replan();
   }
 
+  /// The app switched to another of the server's addresses (the one in use
+  /// stopped answering): the stream reopens from there, where it was.
+  Future<void> moveTo({required PlaybackApi playback, required LibraryApi library}) async {
+    this.playback = playback;
+    this.library = library;
+    if (plan == null || _leaving || _stopped) return;
+    PlaybackLog.add('Server address changed: reopening the stream from there');
+    error = errorDetails = null;
+    notifyListeners();
+    await _replan();
+  }
+
   /// Asks the server again for the item at [effectiveQuality] and reopens
   /// the stream where it is.
   Future<void> _replan() async {
@@ -535,7 +556,14 @@ class PlaybackController extends ChangeNotifier {
   /// after a seek or an open is loading, not the connection falling behind.
   int _jumpsAtStall = 0;
 
+  Timer? _longWaitTimer;
+
   void _onBuffering(bool buffering) {
+    _longWaitTimer?.cancel();
+    if (buffering && onLongWait != null && plan != null && !_leaving && !_stopped &&
+        localCopy?.call(plan!.itemId) == null) {
+      _longWaitTimer = Timer(longStall, () => onLongWait?.call());
+    }
     if (quality != StreamQuality.auto || plan == null || _recovering || _leaving || _stopped) return;
     if (localCopy?.call(plan!.itemId) != null) return;
     final at = now();
@@ -897,6 +925,7 @@ class PlaybackController extends ChangeNotifier {
       t.cancel();
     }
     _stallTimer?.cancel();
+    _longWaitTimer?.cancel();
     // Cancelling takes effect immediately; no need to wait for the futures.
     for (final s in _subscriptions) {
       unawaited(s.cancel());

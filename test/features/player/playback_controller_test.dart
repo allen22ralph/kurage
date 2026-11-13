@@ -595,6 +595,52 @@ void main() {
     });
   });
 
+  test("another of the server's addresses: the stream reopens from it, where it was", () {
+    fakeAsync((async) {
+      final c = build(_routes());
+      loadIn(async, c);
+      expect(engine.openedUrl!.host, 'jellyfin.home.arpa');
+
+      engine.moveTo(const Duration(minutes: 12));
+      final away = JellyfinApi(
+        baseUrl: Uri.parse('https://jf.example.ts.net'),
+        clientInfo: testClientInfo,
+        accessToken: 'tok',
+        dio: Dio()..httpClientAdapter = server,
+      );
+      unawaited(c.moveTo(playback: PlaybackApi(away, userId: 'u1'), library: LibraryApi(away, userId: 'u1')));
+      settle(async);
+      expect(engine.opens, 2);
+      expect(engine.openedUrl!.host, 'jf.example.ts.net');
+      expect(engine.openedStart, const Duration(minutes: 12));
+      expect(server.requestsTo('/Items/ep1/PlaybackInfo').last.uri.host, 'jf.example.ts.net');
+    });
+  });
+
+  test('a long wait for the stream asks whether the address still answers, whatever the quality', () {
+    fakeAsync((async) {
+      var asked = 0;
+      server = FakeServer(_routes());
+      final c = build(_routes(), quality: StreamQuality.original);
+      final watched = PlaybackController(
+        engine: engine,
+        playback: c.playback,
+        library: c.library,
+        settings: const PlaybackSettings(),
+        authorizationHeader: c.authorizationHeader,
+        onLongWait: () => asked++,
+      );
+      loadIn(async, watched);
+      engine.buffer(true);
+      async.elapse(const Duration(seconds: 3));
+      engine.buffer(false);
+      expect(asked, 0, reason: 'a short wait');
+      engine.buffer(true);
+      async.elapse(const Duration(seconds: 7));
+      expect(asked, 1);
+    });
+  });
+
   test('quality: the default applies until one is picked; a pick lasts for the next episode', () {
     fakeAsync((async) {
       final c = build(_routes(), settings: const PlaybackSettings(defaultQuality: StreamQuality.mbps10));

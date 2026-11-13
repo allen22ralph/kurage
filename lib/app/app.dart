@@ -101,14 +101,16 @@ class _JellyfinClientAppState extends ConsumerState<JellyfinClientApp> {
   Timer? _addressCheck;
 
   /// For a server with more than one address: the one that answers now,
-  /// shortly after coming back or a network change. Not while something
-  /// plays (switching reloads what the app shows).
+  /// shortly after coming back or a network change. While something plays,
+  /// only if the one in use stopped answering (the player then reopens the
+  /// stream from the new one).
   void _checkAddress() {
     _addressCheck?.cancel();
     _addressCheck = Timer(const Duration(seconds: 2), () {
       final path = ref.read(routerProvider).routerDelegate.currentConfiguration.uri.path;
-      if (path.startsWith('/play')) return;
-      unawaited(ref.read(sessionControllerProvider.notifier).useAnsweringAddress());
+      unawaited(ref
+          .read(sessionControllerProvider.notifier)
+          .useAnsweringAddress(onlyIfDown: path.startsWith('/play')));
     });
   }
 

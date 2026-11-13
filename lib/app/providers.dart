@@ -93,9 +93,21 @@ class SessionController extends AsyncNotifier<StoredSession?> {
   /// answers now (home first), if it isn't the one in use. True when the
   /// address in use answers or another was switched to; false when none
   /// does, or the server has only the one address.
-  Future<bool> useAnsweringAddress() async {
+  ///
+  /// With [onlyIfDown] (while something plays), the address in use is kept
+  /// as long as it answers: switching reopens the stream.
+  Future<bool> useAnsweringAddress({bool onlyIfDown = false}) async {
     final session = state.value;
     if (session == null || session.addresses.length < 2) return false;
+    if (onlyIfDown) {
+      final current = await pickAddress(
+        [session.baseUrl],
+        session.serverId,
+        (address) async => (await ref.read(apiFactoryProvider)(address).getPublicSystemInfo()).id,
+        timeout: const Duration(seconds: 3),
+      );
+      if (current != null) return true;
+    }
     final picked = await _pick(session);
     final now = state.value;
     if (picked == null || now?.key != session.key) return false;
