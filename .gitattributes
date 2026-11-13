@@ -1,0 +1,7 @@
+# Files run inside the Linux build container must keep LF endings, even in
+# a Windows checkout (core.autocrlf would otherwise convert them to CRLF).
+*.sh          text eol=lf
+*.env         text eol=lf
+Dockerfile    text eol=lf
+# Windows-only scripts
+*.ps1         text eol=crlf

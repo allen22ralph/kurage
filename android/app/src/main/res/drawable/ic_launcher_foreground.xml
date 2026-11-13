@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app icon (Kurage's logo): a jellyfish, a violet bell outline with a
+     cyan glow inside and four wavy cyan tentacles, inside the adaptive
+     icon's 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M30,58 C30,38 41,27 54,27 C67,27 78,38 78,58 Q72,54 66,58 Q60,54 54,58 Q48,54 42,58 Q36,54 30,58 Z"
+        android:strokeColor="#FF8F84FF"
+        android:strokeWidth="5"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M42,52 C42,42 47,36 54,36 C61,36 66,42 66,52 Z"
+        android:fillColor="#FF8EE6F5" />
+    <path
+        android:pathData="M38,62 Q34,68 38,74 Q42,80 38,86 M48,62 Q44,68 48,74 Q52,80 48,84 M60,62 Q64,68 60,74 Q56,80 60,84 M70,62 Q74,68 70,74 Q66,80 70,86"
+        android:strokeColor="#FF8EE6F5"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+</vector>

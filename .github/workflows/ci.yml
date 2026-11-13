@@ -1,0 +1,122 @@
+# CI runs once per release: pushing a version tag (v0.3.3) analyzes, tests,
+# builds Windows and Android, and publishes a draft GitHub Release with the
+# builds. Tests and the analyzer also run on the PC before each commit. A
+# run can be started by hand too (Actions > CI > Run workflow).
+#
+# Linux jobs run in the same pinned Docker image as ./build.sh, and the
+# Windows job uses the same tool/versions.env, so CI builds match local ones.
+name: CI
+
+on:
+  push:
+    # Not local betas (vX.Y.Z-beta.N-local): built and uploaded on the PC
+    # (no CI run), still named like versions so the Releases page sorts them.
+    tags: ['v*', '!v*-local']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-image
+      - run: ./build.sh check
+
+  android:
+    name: Build Android
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-image
+      # Signed with a throwaway key here; tool/release-android.ps1 re-signs
+      # a release's APKs with the release key on your PC (no secrets in CI).
+      - run: ./build.sh apk
+        env:
+          # The app's MAL client ID: a repository variable, not a secret
+          # (it only names the app to MAL, and is in every build anyway).
+          MAL_CLIENT_ID: ${{ vars.MAL_CLIENT_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/kurage-android-*.apk
+          retention-days: 14
+
+  windows:
+    name: Build Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load pinned versions
+        shell: bash
+        run: cat tool/versions.env >> "$GITHUB_ENV"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build
+        shell: bash
+        run: flutter build windows --release $(bash tool/ci/build_args.sh)
+        env:
+          MAL_CLIENT_ID: ${{ vars.MAL_CLIENT_ID }}
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath kurage-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: kurage-windows-x64.zip
+          retention-days: 14
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: release-notes
+      # The notes people read (in the app's update dialog too), written with
+      # the release PR: release-notes/<tag>.md. GitHub's generated list is
+      # links to this private repo's PRs, which no one else can open.
+      - name: Release notes
+        run: |
+          notes="release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then cp "$notes" notes.md; else : > notes.md; fi
+      # Only the app builds: the run also holds Docker build records
+      # (*.dockerbuild), which don't download as plain artifacts.
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: dist
+      # The version in each file's name (kurage-0.4.0-android-…),
+      # so a download says which it is. The app's updater goes by the end
+      # of the name (-arm64-v8a-release.apk, -windows-x64.zip).
+      - name: Version in the file names
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for f in dist/kurage-*; do
+            mv "$f" "dist/kurage-$version-${f#dist/kurage-}"
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body_path: notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          # Published by tool/release-android.ps1 once the APKs are signed.
+          draft: true

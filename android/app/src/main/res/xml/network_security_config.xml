@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Home media servers commonly use plain HTTP on the LAN, or HTTPS with a
+  private CA (e.g. Caddy's local authority) installed as a user certificate.
+  Android blocks both by default, so allow them explicitly.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>
