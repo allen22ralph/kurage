@@ -52,21 +52,15 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
     _lookAround();
   }
 
-  /// Whether the last search scanned the network (asked for by the user).
-  bool _scanned = false;
-
-  /// Looks for Jellyfin servers on this network: Jellyfin's own discovery
-  /// call on opening; with [scan], also a scan of the network's addresses
-  /// for Jellyfin's port, only when the user asks (on a work or hotel
-  /// network, a scan can look like an attack).
-  void _lookAround({bool scan = false}) {
+  /// Looks for Jellyfin servers on this network (Jellyfin's own discovery
+  /// call, as its apps make).
+  void _lookAround() {
     _search?.cancel();
     setState(() {
       _found.clear();
       _searching = true;
-      _scanned = scan;
     });
-    _search = ref.read(serverDiscoveryProvider)(scan: scan).listen(
+    _search = ref.read(serverDiscoveryProvider)().listen(
       (server) {
         if (mounted) setState(() => _found.add(server));
       },
@@ -236,10 +230,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
               if (!servers.any((k) => k.id == f.id && k.addresses.contains(f.address))) f,
           ],
           searching: _searching,
-          scanned: _scanned,
           enabled: !_busy,
           onPick: (server) => _connect([server.address]),
-          onScan: () => _lookAround(scan: true),
+          onLookAgain: _lookAround,
         ),
         TextField(
           controller: _address,
@@ -394,18 +387,16 @@ class _OnThisNetwork extends StatelessWidget {
   const _OnThisNetwork({
     required this.found,
     required this.searching,
-    required this.scanned,
     required this.enabled,
     required this.onPick,
-    required this.onScan,
+    required this.onLookAgain,
   });
 
   final List<DiscoveredServer> found;
   final bool searching;
-  final bool scanned;
   final bool enabled;
   final ValueChanged<DiscoveredServer> onPick;
-  final VoidCallback onScan;
+  final VoidCallback onLookAgain;
 
   @override
   Widget build(BuildContext context) {
@@ -425,7 +416,7 @@ class _OnThisNetwork extends StatelessWidget {
                   child: SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                 )
               else
-                TextButton(onPressed: enabled ? onScan : null, child: const Text('Scan this network')),
+                TextButton(onPressed: enabled ? onLookAgain : null, child: const Text('Look again')),
             ],
           ),
           for (final server in found)
@@ -441,11 +432,9 @@ class _OnThisNetwork extends StatelessWidget {
           if (found.isEmpty)
             Text(
               searching
-                  ? (scanned ? 'Scanning this network for Jellyfin…' : 'Looking for Jellyfin servers…')
-                  : scanned
-                      ? 'No servers found on this network.'
-                      : "None answered. Scan this network to look for Jellyfin's port on every "
-                          'device (best only on your own network).',
+                  ? 'Looking for Jellyfin servers…'
+                  : "None answered. Enter your server's address below (some servers, such as in "
+                      "Docker, don't answer this search).",
               style: muted,
             ),
         ],

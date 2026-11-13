@@ -13,27 +13,13 @@ class DiscoveredServer {
   final Uri address;
 }
 
-/// Asks [address] which Jellyfin server it is (its public system info):
-/// (id, name), or null when it isn't one or doesn't answer.
-typedef ServerProbe = Future<({String id, String name})?> Function(Uri address);
-
-/// Finds Jellyfin servers on the local network, each once, as they answer:
-///
-/// - Jellyfin's own discovery: "Who is JellyfinServer?" broadcast to UDP
-///   7359 (answered when the server allows it and isn't behind Docker's
-///   network);
-/// - with [scan], also a scan of this device's local networks for
-///   Jellyfin's usual port, 8096, for servers that don't answer the
-///   broadcast. Only when asked for: on someone else's network (work, a
-///   hotel) a scan can look like an attack.
-///
-/// Done after [timeout].
-Stream<DiscoveredServer> discoverServers({
-  required ServerProbe probe,
-  bool scan = false,
-  Duration timeout = const Duration(seconds: 6),
-  int port = 8096,
-}) {
+/// Finds Jellyfin servers on the local network, each once, as they answer,
+/// the way Jellyfin's own apps do: "Who is JellyfinServer?" broadcast to
+/// UDP 7359, which servers answer with their name, ID and address (when
+/// Auto Discovery is on in the server's networking settings, and the
+/// broadcast reaches it: a server in Docker needs host networking). No
+/// scanning of the network's devices. Done after [timeout].
+Stream<DiscoveredServer> discoverServers({Duration timeout = const Duration(seconds: 4)}) {
   final out = StreamController<DiscoveredServer>();
   final seen = <String>{};
   var closed = false;
@@ -44,13 +30,7 @@ Stream<DiscoveredServer> discoverServers({
   }
 
   Future<void> run() async {
-    final interfaces = await _homeInterfaces();
-    final deadline = Timer(timeout, () {});
-    await Future.wait([
-      _broadcast(interfaces, timeout, found).catchError((Object _) {}),
-      if (scan) _scan(interfaces, port, probe, found, () => !deadline.isActive || closed).catchError((Object _) {}),
-    ]).timeout(timeout, onTimeout: () => const []);
-    deadline.cancel();
+    await _broadcast(await _homeInterfaces(), timeout, found).catchError((Object _) {});
     closed = true;
     await out.close();
   }
@@ -96,7 +76,7 @@ Future<void> _broadcast(List<InternetAddress> interfaces, Duration timeout, void
     try {
       socket.send(ask, t, 7359);
     } on Object {
-      // Not allowed on this network: the scan still runs.
+      // Not allowed on this network (some block broadcasts).
     }
   }
   final sub = socket.listen((event) {
@@ -121,37 +101,4 @@ Future<void> _broadcast(List<InternetAddress> interfaces, Duration timeout, void
   await Future<void>.delayed(timeout);
   await sub.cancel();
   socket.close();
-}
-
-/// Tries [port] on every address of each home network (as /24s), a few
-/// dozen at a time, asking those that accept which server they are.
-Future<void> _scan(
-  List<InternetAddress> interfaces,
-  int port,
-  ServerProbe probe,
-  void Function(DiscoveredServer) found,
-  bool Function() stop,
-) async {
-  final hosts = <String>[
-    for (final a in interfaces)
-      for (var n = 1; n <= 254; n++)
-        if ('${a.address.substring(0, a.address.lastIndexOf('.'))}.$n' case final h when h != a.address) h,
-  ];
-  var next = 0;
-  Future<void> worker() async {
-    while (next < hosts.length && !stop()) {
-      final host = hosts[next++];
-      try {
-        final socket = await Socket.connect(host, port, timeout: const Duration(milliseconds: 700));
-        socket.destroy();
-      } on Object {
-        continue;
-      }
-      final address = Uri(scheme: 'http', host: host, port: port);
-      final server = await probe(address).catchError((Object _) => null);
-      if (server != null) found(DiscoveredServer(id: server.id, name: server.name, address: address));
-    }
-  }
-
-  await Future.wait([for (var i = 0; i < 64; i++) worker()]);
 }

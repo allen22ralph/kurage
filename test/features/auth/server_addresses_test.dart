@@ -120,7 +120,7 @@ void main() {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
     Future<ProviderContainer> pumpApp(WidgetTester tester, FakeServer server,
-        {Stream<DiscoveredServer> Function({bool scan})? discover}) async {
+        {Stream<DiscoveredServer> Function()? discover}) async {
       server.routes.putIfAbsent('/UserViews', () => (200, pageJson([])));
       server.routes.putIfAbsent('/UserItems/Resume', () => (200, pageJson([])));
       server.routes.putIfAbsent('/Shows/NextUp', () => (200, pageJson([])));
@@ -179,7 +179,7 @@ void main() {
         '/QuickConnect/Enabled': (200, true),
       });
       await pumpApp(tester, server,
-          discover: ({bool scan = false}) => Stream.value(DiscoveredServer(id: 'srv1', name: 'sam', address: home)));
+          discover: () => Stream.value(DiscoveredServer(id: 'srv1', name: 'sam', address: home)));
       expect(find.text('On this network'), findsOneWidget);
       await tester.tap(find.text('10.0.0.28:8096'));
       await tester.pumpAndSettle();
@@ -187,19 +187,17 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
     });
 
-    testWidgets("on opening, only Jellyfin's own call; the scan only when asked for", (tester) async {
+    testWidgets('nothing answers: says to enter the address, and can look again', (tester) async {
       FlutterSecureStorage.setMockInitialValues({});
-      final looks = <bool>[];
-      await pumpApp(tester, FakeServer({}), discover: ({bool scan = false}) {
-        looks.add(scan);
+      var looks = 0;
+      await pumpApp(tester, FakeServer({}), discover: () {
+        looks++;
         return const Stream.empty();
       });
-      expect(looks, [false], reason: 'no scan of a network that may not be ours');
       expect(find.textContaining('None answered'), findsOneWidget);
-      await tester.tap(find.text('Scan this network'));
+      await tester.tap(find.text('Look again'));
       await tester.pumpAndSettle();
-      expect(looks, [false, true]);
-      expect(find.text('No servers found on this network.'), findsOneWidget);
+      expect(looks, 2);
     });
   });
 }
