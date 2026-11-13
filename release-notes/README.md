@@ -5,8 +5,8 @@ release PR. CI puts it on the draft release when the tag is built; people
 read it on the release page and in the app's update dialog (Markdown).
 No file: the draft's notes are empty, to be filled in before publishing.
 
-Write for the people using the app: what's new and how to use it, not PR
-numbers or code (this repo is private, so links to it don't open for them).
+Write for the people using the app: what's new and how to use it, not pull
+request numbers or code.
 
 A release built on the PC instead of CI (small changes, to save Actions
 minutes) is tagged `vX.Y.Z-local`, so CI ignores it; its notes go in

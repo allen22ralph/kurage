@@ -88,8 +88,8 @@ jobs:
         with:
           sparse-checkout: release-notes
       # The notes people read (in the app's update dialog too), written with
-      # the release PR: release-notes/<tag>.md. GitHub's generated list is
-      # links to this private repo's PRs, which no one else can open.
+      # the release: release-notes/<tag>.md, written for the people using the
+      # app rather than GitHub's list of pull requests.
       - name: Release notes
         run: |
           notes="release-notes/${GITHUB_REF_NAME}.md"
