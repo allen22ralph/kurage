@@ -71,7 +71,11 @@ class SeerrAccountController extends AsyncNotifier<SeerrAccount?> {
   Future<void> refresh() async {
     final account = state.value;
     if (account == null) return;
-    final me = await _api(account.baseUrl, cookie: account.cookie, apiKey: account.apiKey).me();
+    // Tells seerrReachableProvider whether Seerr answered.
+    final me = await trackSeerr(
+      () => ref.read(seerrReachableProvider.notifier),
+      _api(account.baseUrl, cookie: account.cookie, apiKey: account.apiKey).me(),
+    );
     if (state.value != account) return; // signed out or switched meanwhile
     if (me.permissions == account.user.permissions && me.displayName == account.user.displayName) return;
     AppLog.info(LogArea.seerr, 'Seerr account updated: ${me.role} (permissions ${me.permissions})');

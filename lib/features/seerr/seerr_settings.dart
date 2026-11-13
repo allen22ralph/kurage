@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,37 +16,71 @@ import '../../app/connection_check.dart';
 enum _SignInMode { jellyfin, seerr, apiKey }
 
 /// Settings > Seerr: sign in (Jellyfin account, Seerr account or API key) / out.
-class SeerrSettingsSection extends ConsumerWidget {
+/// Opening it asks Seerr whether it answers, so a saved sign-in isn't shown
+/// as if all were well while Seerr is down.
+class SeerrSettingsSection extends ConsumerStatefulWidget {
   const SeerrSettingsSection({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SeerrSettingsSection> createState() => _SeerrSettingsSectionState();
+}
+
+class _SeerrSettingsSectionState extends ConsumerState<SeerrSettingsSection> {
+  bool _checking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    scheduleMicrotask(_check);
+  }
+
+  Future<void> _check() async {
+    final account = await ref.read(seerrAccountProvider.future).catchError((Object _) => null);
+    if (account == null || !mounted) return;
+    setState(() => _checking = true);
+    try {
+      // Reports whether Seerr answered (seerrReachableProvider).
+      await ref.read(seerrAccountProvider.notifier).refresh();
+    } on Object {
+      // Shown below as "can't be reached"; the reason is in the log.
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final account = ref.watch(seerrAccountProvider).value;
     if (account == null) {
       return ListTile(
         leading: const Icon(Icons.add_link),
         title: const Text('Sign in to Seerr'),
-        subtitle: const Text('Request shows and movies; see what\'s trending'),
+        subtitle: const Text("Request shows and movies; see what's trending"),
         onTap: () => showDialog<void>(context: context, builder: (_) => const _SeerrSignInDialog()),
       );
     }
+    final reachable = ref.watch(seerrReachableProvider);
+    final error = Theme.of(context).colorScheme.error;
+    final where = '${account.user.role} · ${account.baseUrl.host}';
     return Column(
       children: [
         ListTile(
-          leading: const Icon(Icons.verified_user_outlined),
-          title: Text('Signed in as ${account.user.displayName}'),
-          subtitle: Text.rich(TextSpan(
-            text: '${account.user.role} · ${account.baseUrl.host}',
-            children: [
-              // The sign-in is kept: it works again once Seerr can be reached
-              // (e.g. back on the home network).
-              if (!ref.watch(seerrReachableProvider))
-                TextSpan(
-                  text: " · can't be reached right now",
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-            ],
-          )),
+          leading: _checking
+              ? const SizedBox.square(dimension: 24, child: Padding(padding: EdgeInsets.all(3), child: CircularProgressIndicator(strokeWidth: 2)))
+              : Icon(reachable ? Icons.verified_user_outlined : Icons.cloud_off_outlined, color: reachable ? null : error),
+          title: Text(
+            _checking
+                ? 'Checking Seerr…'
+                : reachable
+                    ? 'Signed in as ${account.user.displayName}'
+                    : "Seerr can't be reached",
+            style: !_checking && !reachable ? TextStyle(color: error) : null,
+          ),
+          // The sign-in is kept: it works again once Seerr can be reached
+          // (e.g. back on the home network).
+          subtitle: Text(!_checking && !reachable
+              ? "${account.user.displayName} stays signed in for when it's back · $where"
+              : where),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

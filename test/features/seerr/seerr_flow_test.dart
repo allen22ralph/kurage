@@ -128,19 +128,31 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ListTile, 'Seerr'));
     await tester.pumpAndSettle();
-    expect(find.textContaining("can't be reached right now"), findsNothing);
+    expect(find.text('Signed in as sam'), findsOneWidget);
 
     server.routes['/api/v1/status'] = unreachable;
     await tester.tap(find.text('Check connection'));
     await tester.pumpAndSettle();
-    expect(find.text('Signed in as sam'), findsOneWidget, reason: 'kept');
-    expect(find.textContaining("can't be reached right now"), findsOneWidget);
+    expect(find.text("Seerr can't be reached"), findsOneWidget);
+    expect(find.textContaining('sam stays signed in'), findsOneWidget, reason: 'kept');
 
     // Back home: it clears.
     server.routes['/api/v1/status'] = (200, {'version': '3.5.1'});
     await tester.tap(find.text('Check connection'));
     await tester.pumpAndSettle();
-    expect(find.textContaining("can't be reached right now"), findsNothing);
+    expect(find.text("Seerr can't be reached"), findsNothing);
+    expect(find.text('Signed in as sam'), findsOneWidget);
+  });
+
+  testWidgets("Seerr down when Settings opens: said straight away, not 'Signed in'", (tester) async {
+    await pumpApp(tester, seerrUser: _me);
+    server.routes['/api/v1/auth/me'] = unreachable;
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Seerr'));
+    await tester.pumpAndSettle();
+    expect(find.text("Seerr can't be reached"), findsOneWidget);
+    expect(find.text('Signed in as sam'), findsNothing);
   });
 
   testWidgets('sign in with a Seerr-only account (email)', (tester) async {
