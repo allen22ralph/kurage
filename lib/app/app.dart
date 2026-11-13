@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +12,7 @@ import '../features/library/library_providers.dart';
 import '../features/library/widgets/side_scroll.dart';
 import '../features/syncplay/syncplay_service.dart';
 import '../features/update/update_ui.dart';
+import 'providers.dart';
 import 'router.dart';
 import 'system_nav_bar.dart';
 import 'theme.dart';
@@ -76,7 +79,13 @@ class _JellyfinClientAppState extends ConsumerState<JellyfinClientApp> {
   @override
   void initState() {
     super.initState();
-    _lifecycle = AppLifecycleListener(onResume: () => ref.read(syncPlayProvider.notifier).resumed());
+    _lifecycle = AppLifecycleListener(onResume: () {
+      ref.read(syncPlayProvider.notifier).resumed();
+      _checkAddress();
+    });
+    // A new network (home Wi-Fi, mobile data, a VPN): the server's best
+    // address may have changed.
+    _network = ref.read(networkChangesProvider).listen((_) => _checkAddress(), onError: (Object _) {});
     _updates = UpdateWatcher(
       ProviderScope.containerOf(context, listen: false),
       open: (release) {
@@ -88,8 +97,25 @@ class _JellyfinClientAppState extends ConsumerState<JellyfinClientApp> {
     ref.listenManual(homeTabRefreshProvider, (_, _) => _updates.refreshed());
   }
 
+  StreamSubscription<void>? _network;
+  Timer? _addressCheck;
+
+  /// For a server with more than one address: the one that answers now,
+  /// shortly after coming back or a network change. Not while something
+  /// plays (switching reloads what the app shows).
+  void _checkAddress() {
+    _addressCheck?.cancel();
+    _addressCheck = Timer(const Duration(seconds: 2), () {
+      final path = ref.read(routerProvider).routerDelegate.currentConfiguration.uri.path;
+      if (path.startsWith('/play')) return;
+      unawaited(ref.read(sessionControllerProvider.notifier).useAnsweringAddress());
+    });
+  }
+
   @override
   void dispose() {
+    _network?.cancel();
+    _addressCheck?.cancel();
     _lifecycle.dispose();
     _updates.dispose();
     super.dispose();

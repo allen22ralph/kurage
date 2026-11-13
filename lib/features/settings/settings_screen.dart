@@ -27,10 +27,11 @@ import 'playback_settings.dart';
 import 'appearance.dart';
 import '../../app/app_dropdown.dart';
 import '../update/update_ui.dart';
+import 'server_addresses_section.dart';
 
 /// The parts of Settings, each a page of its own (#85).
 enum SettingsCategory {
-  account('Account & server', Icons.account_circle_outlined, 'Signed-in account, accounts, trusted certificates'),
+  account('Account & server', Icons.account_circle_outlined, 'Signed-in account, accounts, server addresses, trusted certificates'),
   server('Server', Icons.dns_outlined, 'Libraries, scheduled tasks, users, restart (administrators)'),
   playback('Playback', Icons.play_circle_outline, 'Languages, skipping, next episode, decoding'),
   controls('Player controls', Icons.keyboard_outlined, 'Player theme and layout; keyboard shortcuts or touch gestures'),
@@ -78,6 +79,9 @@ class SettingsDevice {
             'Sign out',
             'Approve a Quick Connect code',
             'Check connection',
+            'Server addresses',
+            'Add address',
+            'Tailscale',
             'Trusted certificates',
           ],
         SettingsCategory.server => const [
@@ -394,6 +398,8 @@ class SettingsCategoryBody extends ConsumerWidget {
         return const [
           _Section('Account'),
           _AccountTile(),
+          _Section('Server addresses'),
+          ServerAddressesSection(),
           _Section('Trusted certificates'),
           _TrustedCertificates(),
         ];

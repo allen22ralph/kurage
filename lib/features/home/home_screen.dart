@@ -40,6 +40,9 @@ import 'this_week.dart';
 /// Seerr again if it was unreachable), and More for you. Completes once the
 /// libraries load; throws if they can't.
 Future<void> refreshHome(WidgetRef ref) async {
+    // A server with more than one address: the best one that answers now
+    // (back home, or away), switched to first.
+    await ref.read(sessionControllerProvider.notifier).useAnsweringAddress();
     ref.invalidate(viewsProvider);
     ref.invalidate(libraryBackdropsProvider);
     ref.invalidate(homeGenresProvider);
@@ -359,11 +362,18 @@ class _ServerDownState extends State<_ServerDown> {
     super.didChangeDependencies();
     if (_sent || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
     _sent = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final container = ProviderScope.containerOf(context, listen: false);
       final session = container.read(sessionControllerProvider).value;
       if (session == null) return;
+      // Another of the server's addresses may answer (away from home, say):
+      // switched to, Home fills in from it instead.
+      if (await container.read(sessionControllerProvider.notifier).useAnsweringAddress()) {
+        if (mounted) _retry();
+        return;
+      }
+      if (!mounted) return;
       container.read(loginFlowProvider.notifier).serverUnreachable(session);
       GoRouter.of(context).go('/connect');
     });

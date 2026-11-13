@@ -8,6 +8,7 @@ import 'package:jellyfin_client/app/providers.dart';
 import 'package:jellyfin_client/core/anime/anime_ids.dart';
 import 'package:jellyfin_client/core/anime/anime_info.dart';
 import 'package:jellyfin_client/core/jellyfin/client_info.dart';
+import 'package:jellyfin_client/core/jellyfin/server_discovery.dart';
 import 'package:jellyfin_client/features/seerr/seerr_providers.dart';
 import 'package:jellyfin_client/features/anime/anime_providers.dart';
 import 'package:jellyfin_client/features/home/home_header.dart';
@@ -109,6 +110,7 @@ List<Override> fakeServerOverrides(
   FakeServer server, {
   AnimeIdMapping animeIds = const AnimeIdMapping(),
   bool header = false,
+  Stream<DiscoveredServer> Function()? discover,
 }) =>
     [
       if (!header) homeHeaderSettingsProvider.overrideWith(_HeaderOff.new),
@@ -118,6 +120,8 @@ List<Override> fakeServerOverrides(
         () => Dio()..httpClientAdapter = server,
       ),
       seerrPollIntervalProvider.overrideWithValue(null),
+      serverDiscoveryProvider.overrideWithValue(discover ?? () => const Stream.empty()),
+      networkChangesProvider.overrideWithValue(const Stream.empty()),
       animeIdMappingProvider.overrideWith((ref) async => animeIds),
       animeInfoCacheProvider.overrideWith((ref) async => AnimeInfoCache()),
       jikanApiProvider.overrideWith(

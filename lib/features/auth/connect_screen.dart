@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../../app/providers.dart';
 import '../../core/jellyfin/jellyfin_api.dart';
 import '../../core/jellyfin/server_address.dart';
+import '../../core/jellyfin/server_addresses.dart';
+import '../../core/jellyfin/server_discovery.dart';
 import '../../core/storage/session_store.dart';
 import '../home/home_screen.dart';
 import 'widgets/auth_layout.dart';
@@ -36,16 +38,58 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
   bool _retrying = false;
   bool _stillDown = false;
 
+  /// Servers found on this network, as they answer.
+  final _found = <DiscoveredServer>[];
+  StreamSubscription<DiscoveredServer>? _search;
+  bool _searching = false;
+
   @override
   void initState() {
     super.initState();
     if (ref.read(loginFlowProvider).unreachable != null) {
       _retryTimer = Timer.periodic(const Duration(seconds: 30), (_) => _tryAgain(quiet: true));
     }
+    _lookAround();
+  }
+
+  /// Looks for Jellyfin servers on this network.
+  void _lookAround() {
+    _search?.cancel();
+    setState(() {
+      _found.clear();
+      _searching = true;
+    });
+    _search = ref.read(serverDiscoveryProvider)().listen(
+      (server) {
+        if (mounted) setState(() => _found.add(server));
+      },
+      onError: (Object _) {},
+      onDone: () {
+        if (mounted) setState(() => _searching = false);
+      },
+    );
+  }
+
+  /// A saved server: through whichever of its addresses answers (at home
+  /// or away), the best first.
+  Future<void> _connectKnown(KnownServer server) async {
+    if (server.addresses.length < 2) return _connect([server.baseUrl]);
+    setState(() => _busy = true);
+    final factory = ref.read(apiFactoryProvider);
+    final picked = await pickAddress(
+      server.addresses,
+      server.id,
+      (address) async => (await factory(address).getPublicSystemInfo()).id,
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    // None answered: the usual attempt, with its error message.
+    await _connect(picked == null ? rankAddresses(server.addresses) : [picked]);
   }
 
   @override
   void dispose() {
+    _search?.cancel();
     _retryTimer?.cancel();
     _address.dispose();
     super.dispose();
@@ -169,7 +213,7 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             _KnownServerTile(
               server: server,
               enabled: !_busy,
-              onTap: () => _connect([server.baseUrl]),
+              onTap: () => _connectKnown(server),
               onForget: () async {
                 await ref.read(sessionStoreProvider).forgetServer(server.id);
                 ref.invalidate(knownServersProvider);
@@ -177,6 +221,18 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
             ),
           const SizedBox(height: 24),
         ],
+        _OnThisNetwork(
+          found: [
+            // A saved server found at an address it already has needs no
+            // second line; at a new one (its home address, say), it's offered.
+            for (final f in _found)
+              if (!servers.any((k) => k.id == f.id && k.addresses.contains(f.address))) f,
+          ],
+          searching: _searching,
+          enabled: !_busy,
+          onPick: (server) => _connect([server.address]),
+          onLookAgain: _lookAround,
+        ),
         TextField(
           controller: _address,
           autofocus: servers.isEmpty,
@@ -314,12 +370,67 @@ class _KnownServerTile extends StatelessWidget {
       enabled: enabled,
       leading: const CircleAvatar(child: Icon(Icons.dns_outlined)),
       title: Text(server.name),
-      subtitle: Text(server.baseUrl.host),
+      subtitle: Text(server.addresses.map((a) => a.host).join(' · ')),
       onTap: onTap,
       trailing: IconButton(
         tooltip: 'Forget server',
         icon: const Icon(Icons.close),
         onPressed: enabled ? onForget : null,
+      ),
+    );
+  }
+}
+
+/// Jellyfin servers found on this network: one tap to connect.
+class _OnThisNetwork extends StatelessWidget {
+  const _OnThisNetwork({
+    required this.found,
+    required this.searching,
+    required this.enabled,
+    required this.onPick,
+    required this.onLookAgain,
+  });
+
+  final List<DiscoveredServer> found;
+  final bool searching;
+  final bool enabled;
+  final ValueChanged<DiscoveredServer> onPick;
+  final VoidCallback onLookAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Expanded(child: SectionLabel('On this network')),
+              if (searching)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4, right: 12),
+                  child: SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              else
+                TextButton(onPressed: enabled ? onLookAgain : null, child: const Text('Look again')),
+            ],
+          ),
+          for (final server in found)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              enabled: enabled,
+              leading: const CircleAvatar(child: Icon(Icons.wifi_find_outlined)),
+              title: Text(server.name),
+              subtitle: Text(server.address.authority),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => onPick(server),
+            ),
+          if (found.isEmpty)
+            Text(searching ? 'Looking for Jellyfin servers…' : 'No servers found on this network.', style: muted),
+        ],
       ),
     );
   }

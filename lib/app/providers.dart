@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/jellyfin/client_info.dart';
 import '../core/jellyfin/jellyfin_api.dart';
 import '../core/jellyfin/models.dart';
+import '../core/jellyfin/server_addresses.dart';
+import '../core/jellyfin/server_discovery.dart';
 import '../core/log/app_log.dart';
 import '../core/storage/session_store.dart';
 import 'toast.dart';
@@ -33,6 +36,22 @@ final apiFactoryProvider = Provider<ApiFactory>((ref) {
       );
 });
 
+/// Fires when the device's network changes (Wi-Fi, mobile data, a VPN).
+/// Overridden in tests, which have no network plugin.
+final networkChangesProvider = Provider<Stream<void>>(
+  (ref) => Connectivity().onConnectivityChanged.skip(1),
+);
+
+/// Finds Jellyfin servers on the local network (the connect screen's list).
+/// Overridden in tests, which mustn't search a real network.
+final serverDiscoveryProvider = Provider<Stream<DiscoveredServer> Function()>((ref) {
+  final factory = ref.watch(apiFactoryProvider);
+  return () => discoverServers(probe: (address) async {
+        final info = await factory(address).getPublicSystemInfo().timeout(const Duration(seconds: 3));
+        return (id: info.id, name: info.serverName);
+      });
+});
+
 typedef ApiFactory = JellyfinApi Function(
   Uri baseUrl, {
   String? token,
@@ -49,7 +68,64 @@ class SessionController extends AsyncNotifier<StoredSession?> {
   SessionStore get _store => ref.read(sessionStoreProvider);
 
   @override
-  Future<StoredSession?> build() => _store.loadActive();
+  Future<StoredSession?> build() async {
+    final session = await _store.loadActive();
+    if (session == null || session.addresses.length < 2) return session;
+    // A server with more than one address: the one that answers now (at
+    // home or away), before anything asks it for anything.
+    final picked = await _pick(session);
+    if (picked == null || picked == session.baseUrl) return session;
+    _logSwitch(session, picked);
+    await _store.setAddresses(session.serverId, session.addresses, inUse: picked);
+    return session.copyWith(baseUrl: picked);
+  }
+
+  Future<Uri?> _pick(StoredSession session, {Duration timeout = const Duration(seconds: 4)}) {
+    final factory = ref.read(apiFactoryProvider);
+    return pickAddress(
+      session.addresses,
+      session.serverId,
+      (address) async => (await factory(address).getPublicSystemInfo()).id,
+      timeout: timeout,
+    );
+  }
+
+  void _logSwitch(StoredSession session, Uri to) => AppLog.info(
+        LogArea.network,
+        'Using ${to.host} for ${session.serverName} (${isHomeAddress(to) ? 'home network' : 'away'})',
+      );
+
+  /// For a server with more than one address: switches to the best one that
+  /// answers now (home first), if it isn't the one in use. True when the
+  /// address in use answers or another was switched to; false when none
+  /// does, or the server has only the one address.
+  Future<bool> useAnsweringAddress() async {
+    final session = state.value;
+    if (session == null || session.addresses.length < 2) return false;
+    final picked = await _pick(session);
+    final now = state.value;
+    if (picked == null || now?.key != session.key) return false;
+    if (picked == now!.baseUrl) return true;
+    _logSwitch(now, picked);
+    await _store.setAddresses(now.serverId, now.addresses, inUse: picked);
+    ref.invalidate(storedSessionsProvider);
+    ref.invalidate(knownServersProvider);
+    state = AsyncData(now.copyWith(baseUrl: picked));
+    return true;
+  }
+
+  /// Settings: the signed-in server's addresses, after adding or removing
+  /// one. The one in use stays unless it was removed.
+  Future<void> setAddresses(List<Uri> addresses) async {
+    final session = state.value;
+    if (session == null || addresses.isEmpty) return;
+    final inUse = addresses.contains(session.baseUrl) ? session.baseUrl : rankAddresses(addresses).first;
+    await _store.setAddresses(session.serverId, addresses, inUse: inUse);
+    ref.invalidate(storedSessionsProvider);
+    ref.invalidate(knownServersProvider);
+    state = AsyncData(session.copyWith(addresses: addresses, baseUrl: inUse));
+    if (addresses.length > 1) unawaited(useAnsweringAddress());
+  }
 
   Future<void> signIn({
     required Uri baseUrl,
@@ -64,19 +140,20 @@ class SessionController extends AsyncNotifier<StoredSession?> {
       userName: auth.user.name,
       accessToken: auth.accessToken,
     );
-    await _store.save(session);
+    final saved = await _store.save(session);
     ref.invalidate(storedSessionsProvider);
     ref.invalidate(knownServersProvider);
     ref.read(loginFlowProvider.notifier).reset();
-    state = AsyncData(session);
+    state = AsyncData(saved);
   }
 
   /// Makes another stored account the active one.
   Future<void> switchTo(StoredSession session) async {
-    await _store.save(session);
+    final saved = await _store.save(session);
     ref.invalidate(knownServersProvider);
     ref.read(loginFlowProvider.notifier).reset();
-    state = AsyncData(session);
+    state = AsyncData(saved);
+    if (saved.addresses.length > 1) unawaited(useAnsweringAddress());
   }
 
   /// Forgets the active account here at once, and tells the server without
@@ -146,6 +223,7 @@ final knownServersProvider = FutureProvider<List<KnownServer>>((ref) async {
         id: session.serverId,
         name: session.serverName,
         baseUrl: session.baseUrl,
+        addresses: session.addresses,
       ));
     }
   }
@@ -213,6 +291,7 @@ class PendingServer {
           id: session.serverId,
           name: session.serverName,
           baseUrl: session.baseUrl,
+          addresses: session.addresses,
         ));
 
   /// A remembered server, used without contacting it first.
