@@ -39,7 +39,7 @@ void main() {
       await c.read(importedThemesProvider.future);
       await c.read(appearanceProvider.future);
       // Depth exported, then brought back in: a copy, in use.
-      await c.read(themeChoiceProvider.notifier).save(const ThemeChoice(themeId: 'depth'));
+      await c.read(themeChoiceProvider.notifier).save(ThemeChoice(themeId: 'depth'));
       final file = parseThemeFile(await exportThemeFile(c));
       await useImportedTheme(c, file, withSettings: true);
     });

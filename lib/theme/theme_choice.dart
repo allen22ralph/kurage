@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -58,9 +59,16 @@ final availableThemesProvider = Provider<List<Map<String, Object?>>>(
   ],
 );
 
+/// The theme a new install starts with (a choice made in Settings stays).
+String get defaultThemeId => debugDefaultThemeId ?? 'depth';
+
+/// Tests set the theme they were written against.
+@visibleForTesting
+String? debugDefaultThemeId;
+
 /// Settings > Appearance > Theme, and the font chosen over the theme's.
 class ThemeChoice {
-  const ThemeChoice({this.themeId = 'classic', this.font, this.googleFonts = false});
+  ThemeChoice({String? themeId, this.font, this.googleFonts = false}) : themeId = themeId ?? defaultThemeId;
 
   final String themeId;
 
@@ -88,14 +96,14 @@ class ThemeChoiceController extends AsyncNotifier<ThemeChoice> {
   Future<ThemeChoice> build() async {
     final prefs = await SharedPreferences.getInstance();
     return ThemeChoice(
-      themeId: prefs.getString('${_prefix}id') ?? 'classic',
+      themeId: prefs.getString('${_prefix}id') ?? defaultThemeId,
       font: FontRef.fromJson(prefs.getString('${_prefix}font')),
       googleFonts: prefs.getBool('${_prefix}googleFonts') ?? false,
     );
   }
 
   Future<void> save(ThemeChoice choice) async {
-    await future.catchError((Object _) => const ThemeChoice());
+    await future.catchError((Object _) => ThemeChoice());
     state = AsyncData(choice);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('${_prefix}id', choice.themeId);
@@ -109,10 +117,10 @@ class ThemeChoiceController extends AsyncNotifier<ThemeChoice> {
   }
 }
 
-/// The active theme for this device; Classic until the choice has loaded,
+/// The active theme for this device; the default until the choice has loaded,
 /// or when the chosen theme is gone.
 final activeThemeProvider = Provider<ThemeSpec>((ref) {
-  final id = ref.watch(themeChoiceProvider.select((c) => c.value?.themeId)) ?? 'classic';
+  final id = ref.watch(themeChoiceProvider.select((c) => c.value?.themeId)) ?? defaultThemeId;
   final json = ref.watch(availableThemesProvider).where((t) => t['id'] == id).firstOrNull;
   if (json == null) return classicTheme;
   return ThemeSpec.fromJson(json, device: ref.watch(themeDeviceProvider));

@@ -245,7 +245,7 @@ Future<void> useImportedTheme(ProviderContainer c, Map<String, Object?> theme, {
 Future<void> removeImportedTheme(ProviderContainer c, String id) async {
   AppLog.info(LogArea.app, 'Theme: removing the imported $id');
   final choice = await c.read(themeChoiceProvider.future);
-  if (choice.themeId == id) await c.read(themeChoiceProvider.notifier).save(choice.copyWith(themeId: 'classic'));
+  if (choice.themeId == id) await c.read(themeChoiceProvider.notifier).save(choice.copyWith(themeId: defaultThemeId));
   await c.read(importedThemesProvider.notifier).remove(id);
 }
 

@@ -148,4 +148,21 @@ void main() {
     addTearDown(here.dispose);
     expect(here.read(themeDeviceProvider), Platform.isAndroid ? ThemeDevice.phone : ThemeDevice.desktop);
   });
+
+  test('a new install starts on Depth; a theme chosen before stays', () async {
+    final before = debugDefaultThemeId;
+    debugDefaultThemeId = null;
+    addTearDown(() => debugDefaultThemeId = before);
+
+    SharedPreferences.setMockInitialValues({});
+    final fresh = ProviderContainer(overrides: [isTvProvider.overrideWithValue(false)]);
+    addTearDown(fresh.dispose);
+    expect((await fresh.read(themeChoiceProvider.future)).themeId, 'depth');
+    expect(fresh.read(activeThemeProvider).id, 'depth');
+
+    SharedPreferences.setMockInitialValues({'flutter.theme.id': 'classic'});
+    final chosen = ProviderContainer(overrides: [isTvProvider.overrideWithValue(false)]);
+    addTearDown(chosen.dispose);
+    expect((await chosen.read(themeChoiceProvider.future)).themeId, 'classic');
+  });
 }

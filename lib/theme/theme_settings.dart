@@ -15,7 +15,7 @@ class ThemeSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final choice = ref.watch(themeChoiceProvider).value ?? const ThemeChoice();
+    final choice = ref.watch(themeChoiceProvider).value ?? ThemeChoice();
     final controller = ref.read(themeChoiceProvider.notifier);
     final active = ref.watch(activeThemeProvider);
     final themes = ref.watch(availableThemesProvider);
