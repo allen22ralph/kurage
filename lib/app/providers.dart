@@ -44,9 +44,9 @@ final networkChangesProvider = Provider<Stream<void>>(
 
 /// Finds Jellyfin servers on the local network (the connect screen's list).
 /// Overridden in tests, which mustn't search a real network.
-final serverDiscoveryProvider = Provider<Stream<DiscoveredServer> Function()>((ref) {
+final serverDiscoveryProvider = Provider<Stream<DiscoveredServer> Function({bool scan})>((ref) {
   final factory = ref.watch(apiFactoryProvider);
-  return () => discoverServers(probe: (address) async {
+  return ({bool scan = false}) => discoverServers(scan: scan, probe: (address) async {
         final info = await factory(address).getPublicSystemInfo().timeout(const Duration(seconds: 3));
         return (id: info.id, name: info.serverName);
       });

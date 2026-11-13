@@ -22,12 +22,15 @@ typedef ServerProbe = Future<({String id, String name})?> Function(Uri address);
 /// - Jellyfin's own discovery: "Who is JellyfinServer?" broadcast to UDP
 ///   7359 (answered when the server allows it and isn't behind Docker's
 ///   network);
-/// - a scan of this device's home networks for Jellyfin's usual port, 8096,
-///   for servers that don't answer the broadcast.
+/// - with [scan], also a scan of this device's local networks for
+///   Jellyfin's usual port, 8096, for servers that don't answer the
+///   broadcast. Only when asked for: on someone else's network (work, a
+///   hotel) a scan can look like an attack.
 ///
 /// Done after [timeout].
 Stream<DiscoveredServer> discoverServers({
   required ServerProbe probe,
+  bool scan = false,
   Duration timeout = const Duration(seconds: 6),
   int port = 8096,
 }) {
@@ -45,7 +48,7 @@ Stream<DiscoveredServer> discoverServers({
     final deadline = Timer(timeout, () {});
     await Future.wait([
       _broadcast(interfaces, timeout, found).catchError((Object _) {}),
-      _scan(interfaces, port, probe, found, () => !deadline.isActive || closed).catchError((Object _) {}),
+      if (scan) _scan(interfaces, port, probe, found, () => !deadline.isActive || closed).catchError((Object _) {}),
     ]).timeout(timeout, onTimeout: () => const []);
     deadline.cancel();
     closed = true;

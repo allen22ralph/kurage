@@ -110,7 +110,7 @@ List<Override> fakeServerOverrides(
   FakeServer server, {
   AnimeIdMapping animeIds = const AnimeIdMapping(),
   bool header = false,
-  Stream<DiscoveredServer> Function()? discover,
+  Stream<DiscoveredServer> Function({bool scan})? discover,
 }) =>
     [
       if (!header) homeHeaderSettingsProvider.overrideWith(_HeaderOff.new),
@@ -120,7 +120,7 @@ List<Override> fakeServerOverrides(
         () => Dio()..httpClientAdapter = server,
       ),
       seerrPollIntervalProvider.overrideWithValue(null),
-      serverDiscoveryProvider.overrideWithValue(discover ?? () => const Stream.empty()),
+      serverDiscoveryProvider.overrideWithValue(discover ?? ({bool scan = false}) => const Stream.empty()),
       networkChangesProvider.overrideWithValue(const Stream.empty()),
       animeIdMappingProvider.overrideWith((ref) async => animeIds),
       animeInfoCacheProvider.overrideWith((ref) async => AnimeInfoCache()),
