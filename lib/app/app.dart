@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'toast.dart';
 import '../features/admin/admin_providers.dart';
+import '../features/home/home_tabs.dart';
 import '../features/player/open_player.dart';
 import '../features/library/library_providers.dart';
 import '../features/library/widgets/side_scroll.dart';
@@ -83,6 +84,8 @@ class _JellyfinClientAppState extends ConsumerState<JellyfinClientApp> {
         if (context != null) showUpdateDialog(context, release);
       },
     )..start();
+    // Refreshing Home checks for an app update too, in the background.
+    ref.listenManual(homeTabRefreshProvider, (_, _) => _updates.refreshed());
   }
 
   @override
