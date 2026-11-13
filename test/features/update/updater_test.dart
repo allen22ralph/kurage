@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -248,6 +251,35 @@ void main() {
     await settle();
     expect(server.requests, hasLength(2), reason: 'hourly from now on');
     watcher.dispose();
+  });
+
+  testWidgets('refreshing Home checks in the background, at most once a minute', (tester) async {
+    final c = container('0.3.1');
+    final watcher = UpdateWatcher(c, open: (_) {});
+    await tester.runAsync(watcher.refreshed);
+    expect(server.requests, hasLength(1));
+    expect(NotificationHistory.items.value.map((n) => n.message), ['Version 0.3.2 is available']);
+    await tester.runAsync(watcher.refreshed);
+    expect(server.requests, hasLength(1), reason: 'checked moments ago');
+    watcher.dispose();
+  });
+
+  testWidgets('refreshing Home: no check when automatic checks are off', (tester) async {
+    final c = container('0.3.1', {'update.autoCheck': false});
+    final watcher = UpdateWatcher(c, open: (_) {});
+    await tester.runAsync(watcher.refreshed);
+    expect(server.requests, isEmpty);
+    watcher.dispose();
+  });
+
+  test('a failed update says what to do in a line or two, not the raw error', () {
+    final dropped = DioException(requestOptions: RequestOptions(path: '/x'), type: DioExceptionType.connectionError,
+        message: 'SocketException: ' * 40);
+    final message = updateFailedMessage(dropped);
+    expect(message, startsWith("The download didn't finish"));
+    expect(message, isNot(contains('SocketException')));
+    expect(message.length, lessThan(200));
+    expect(updateFailedMessage(const FileSystemException('denied')), startsWith("The update couldn't be saved"));
   });
 
   test('the old on / off setting carries over', () async {

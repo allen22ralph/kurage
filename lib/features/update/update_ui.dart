@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app_dropdown.dart';
 import '../../app/toast.dart';
+import '../../core/log/app_log.dart';
 import '../../core/time_ago.dart';
 import '../../core/update/app_update.dart';
 import 'updater.dart';
@@ -91,6 +93,20 @@ class UpdatesSection extends ConsumerWidget {
   }
 }
 
+/// A short, plain reason an update didn't go on, for the update dialog.
+String updateFailedMessage(Object error) {
+  const after = ' Try again, or get it from the release page. Details are in Settings > App log.';
+  if (error is DioException) {
+    return switch (error.type) {
+      DioExceptionType.badResponse => "GitHub didn't send the file (error ${error.response?.statusCode}).$after",
+      DioExceptionType.cancel => 'The download was stopped.$after',
+      _ => "The download didn't finish: GitHub couldn't be reached or the connection dropped.$after",
+    };
+  }
+  if (error is FileSystemException) return "The update couldn't be saved on this device.$after";
+  return "The update didn't go on.$after";
+}
+
 /// What's new in [release], and Download and install.
 Future<void> showUpdateDialog(BuildContext context, AppRelease release) =>
     showDialog<void>(context: context, builder: (_) => _UpdateDialog(release));
@@ -164,8 +180,10 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
         case InstallResult.noFile:
           setState(() => _message = 'This release has no file for this device. See the release page.');
       }
-    } catch (e) {
-      if (mounted) setState(() => _message = 'The download failed: $e');
+    } catch (e, stack) {
+      // The full error goes to the log; the dialog says what to do.
+      AppLog.error(LogArea.update, 'Update ${widget.release.tag} failed', error: e, stack: stack);
+      if (mounted) setState(() => _message = updateFailedMessage(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -230,7 +248,13 @@ class _UpdateDialogState extends ConsumerState<_UpdateDialog> {
             ],
             if (_message != null) ...[
               const SizedBox(height: 16),
-              Text(_message!, style: TextStyle(color: theme.colorScheme.error)),
+              // Kept to a few lines, so the dialog never overflows.
+              Text(
+                _message!,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
             ],
           ],
         ),
@@ -301,10 +325,25 @@ class UpdateWatcher {
     if (last != null && after != null && DateTime.now().difference(last) >= after) _tick();
   }
 
+  /// Home was refreshed (F5, Ctrl+R, pull down or the button): checked
+  /// again in the background, as when automatic checks are on, unless a
+  /// check ran in the last minute (GitHub limits how often it's asked).
+  Future<void> refreshed() async {
+    final settings = await _container.read(updateSettingsProvider.future);
+    if (!settings.autoCheck) return;
+    final last = _container.read(updateCheckProvider).checkedAt;
+    if (last != null && DateTime.now().difference(last) < const Duration(minutes: 1)) return;
+    await _checkAndTell(settings);
+  }
+
   Future<void> _tick() async {
     final settings = await _container.read(updateSettingsProvider.future);
     _schedule();
     if (!settings.autoCheck) return;
+    await _checkAndTell(settings);
+  }
+
+  Future<void> _checkAndTell(UpdateSettings settings) async {
     final release = await _container.read(updateCheckProvider.notifier).check();
     if (release == null || !settings.notify || !_told.add(release.tag)) return;
     showToast(
