@@ -31,6 +31,37 @@ void main() {
     expect(url.toString(), 'https://jellyfin.home.arpa/Videos/ep1/Trickplay/320/1.jpg?mediaSourceId=src1&api_key=tok');
   });
 
+  group("a server's thumbnail count", () {
+    Trickplay of({required int count, int? minutes}) => Trickplay.of(BaseItem.fromJson({
+          'Id': 'ep1',
+          'Name': 'Episode',
+          'Type': 'Episode',
+          'RunTimeTicks': ?(minutes == null ? null : minutes * 60 * 10000000),
+          'Trickplay': {
+            'src1': {
+              '320': {'Width': 320, 'Height': 180, 'TileWidth': 10, 'TileHeight': 10, 'ThumbnailCount': count, 'Interval': 10000},
+            },
+          },
+        }))!;
+
+    test('far too low (2 for 24 minutes) still follows the time', () {
+      final t = of(count: 2, minutes: 24);
+      expect(t.count, 144);
+      expect(t.frameAt(const Duration(minutes: 12, seconds: 35)), (tile: 0, column: 5, row: 7));
+      expect(t.frameAt(const Duration(minutes: 20)), (tile: 1, column: 0, row: 2));
+      // Past the end: the last frame the length needs.
+      expect(t.frameAt(const Duration(hours: 2)), (tile: 1, column: 3, row: 4));
+    });
+
+    test('that covers the length is kept', () {
+      expect(of(count: 150, minutes: 24).count, 150);
+    });
+
+    test('with no length known is all there is to go by', () {
+      expect(of(count: 2).count, 2);
+    });
+  });
+
   test('no trickplay, no preview', () {
     expect(Trickplay.of(BaseItem.fromJson({'Id': 'x', 'Name': 'x', 'Type': 'Movie'})), isNull);
   });

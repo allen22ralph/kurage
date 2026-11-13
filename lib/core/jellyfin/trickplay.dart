@@ -49,7 +49,25 @@ class Trickplay {
     ]..removeWhere((t) => t.count == 0);
     if (options.isEmpty) return null;
     options.sort((a, b) => (a.width - preferredWidth).abs().compareTo((b.width - preferredWidth).abs()));
-    return options.first;
+    return options.first._coveringAtLeast(item.runtime);
+  }
+
+  /// The server's count can be far too low (2 for a whole episode,
+  /// whose sheets are all there), which held every time on one frame. The
+  /// frames the file's length needs count too, so the bar follows the time.
+  Trickplay _coveringAtLeast(Duration? length) {
+    if (length == null || interval <= Duration.zero) return this;
+    final needed = (length.inMilliseconds / interval.inMilliseconds).ceil();
+    if (needed <= count) return this;
+    return Trickplay(
+      mediaSourceId: mediaSourceId,
+      width: width,
+      height: height,
+      tileWidth: tileWidth,
+      tileHeight: tileHeight,
+      count: needed,
+      interval: interval,
+    );
   }
 
   /// Which tile sheet, and which cell in it, shows the frame at [time].
