@@ -88,6 +88,28 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   StreamSubscription<BaseItem>? _nextSub;
   ProviderSubscription<Uri?>? _addressSub;
 
+  bool _checkingAddress = false;
+
+  /// The stream stopped coming: if the server's address stopped answering,
+  /// another of its addresses that answers is switched to (the stream then
+  /// follows, see _addressSub). Asked a few times over half a minute, as
+  /// the other network can take a while to come up (mobile data, a VPN).
+  Future<void> _checkAddress() async {
+    if (_checkingAddress) return;
+    _checkingAddress = true;
+    try {
+      for (final wait in const [0, 3, 6, 10, 15]) {
+        await Future<void>.delayed(Duration(seconds: wait));
+        if (!mounted) return;
+        final session = _container.read(sessionControllerProvider).value;
+        if (session == null || session.addresses.length < 2) return;
+        if (await _container.read(sessionControllerProvider.notifier).useAnsweringAddress(onlyIfDown: true)) return;
+      }
+    } finally {
+      _checkingAddress = false;
+    }
+  }
+
   /// The window itself is fullscreen (desktop): it must be restored when
   /// the player closes, or the rest of the app is stuck fullscreen with no
   /// window buttons.
@@ -257,7 +279,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       playlistId: widget.playlistId,
       // The stream stopped coming: if the server's address stopped
       // answering, another of its addresses is switched to (below).
-      onLongWait: () => unawaited(_container.read(sessionControllerProvider.notifier).useAnsweringAddress(onlyIfDown: true)),
+      onLongWait: () => unawaited(_checkAddress()),
     );
     // Switched to another of the server's addresses: the stream follows.
     _addressSub = _container.listen(sessionControllerProvider.select((s) => s.value?.baseUrl), (before, now) {

@@ -372,6 +372,8 @@ class PlaybackController extends ChangeNotifier {
     if (_leaving) return;
     final plan = this.plan;
     if (plan != null && !_stopped && _networkError.hasMatch(message)) {
+      // The server's address may have stopped answering.
+      onLongWait?.call();
       if (_recentRecoveries < maxRecoveries) {
         // Each recovery counts against the limit for recoveryWindow.
         _recentRecoveries++;
@@ -495,6 +497,10 @@ class PlaybackController extends ChangeNotifier {
     this.library = library;
     if (plan == null || _leaving || _stopped) return;
     PlaybackLog.add('Server address changed: reopening the stream from there');
+    // The waits were the old address going away, not the connection being
+    // slow: Auto starts again from the top.
+    if (quality == StreamQuality.auto) _autoLevel = null;
+    _stalls.clear();
     error = errorDetails = null;
     notifyListeners();
     await _replan();
@@ -540,6 +546,13 @@ class PlaybackController extends ChangeNotifier {
       await _report(() => playback.reportStart(next, position));
       notifyListeners();
     } on JellyfinException catch (e) {
+      if (e.statusCode == null) {
+        // No answer at all: the server's address, not the quality. Asked
+        // about; the stream reopens from another address if one answers.
+        PlaybackLog.add("Server didn't answer (${e.message}); checking its addresses");
+        onLongWait?.call();
+        return;
+      }
       onNotice?.call("Couldn't change the quality: ${e.message}");
     }
   }
@@ -562,7 +575,9 @@ class PlaybackController extends ChangeNotifier {
     _longWaitTimer?.cancel();
     if (buffering && onLongWait != null && plan != null && !_leaving && !_stopped &&
         localCopy?.call(plan!.itemId) == null) {
-      _longWaitTimer = Timer(longStall, () => onLongWait?.call());
+      // Asked again for as long as it waits: after a network change, the
+      // other address can take a while to come up (mobile data, a VPN).
+      _longWaitTimer = Timer.periodic(longStall, (_) => onLongWait?.call());
     }
     if (quality != StreamQuality.auto || plan == null || _recovering || _leaving || _stopped) return;
     if (localCopy?.call(plan!.itemId) != null) return;

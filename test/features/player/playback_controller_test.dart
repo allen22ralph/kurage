@@ -617,6 +617,29 @@ void main() {
     });
   });
 
+  test("the server not answering a quality change is an address problem: asked about, no notice", () {
+    fakeAsync((async) {
+      var asked = 0;
+      final notices = <String>[];
+      final c = build(_routes(), quality: StreamQuality.mbps4);
+      final watched = PlaybackController(
+        engine: engine,
+        playback: c.playback,
+        library: c.library,
+        settings: const PlaybackSettings(),
+        authorizationHeader: c.authorizationHeader,
+        onLongWait: () => asked++,
+        onNotice: notices.add,
+      );
+      loadIn(async, watched);
+      server.routes['/Items/ep1/PlaybackInfo'] = unreachable;
+      unawaited(watched.setQuality(StreamQuality.original));
+      settle(async);
+      expect(notices, isEmpty);
+      expect(asked, 1);
+    });
+  });
+
   test('a long wait for the stream asks whether the address still answers, whatever the quality', () {
     fakeAsync((async) {
       var asked = 0;
@@ -638,6 +661,11 @@ void main() {
       engine.buffer(true);
       async.elapse(const Duration(seconds: 7));
       expect(asked, 1);
+      async.elapse(const Duration(seconds: 6));
+      expect(asked, 2, reason: 'asked again while it still waits');
+      engine.buffer(false);
+      async.elapse(const Duration(seconds: 20));
+      expect(asked, 2);
     });
   });
 
